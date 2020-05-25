@@ -79,14 +79,14 @@ class OrientedTextPostProcessing(nn.Module):
             pred_word_fg, pred_char_fg, pred_char_tblr, pred_char_cls,
             im_scale_w, im_scale_h, original_im_w, original_im_h
         )
-        word_instances = self.parse_words(
+        word_instances, char_text_array, char_score_array = self.parse_words(
             ss_word_bboxes, char_bboxes,
             char_scores, self.char_dict
         )
 
         word_instances = self.filter_word_instances(word_instances, self.lexicon)
 
-        return char_bboxes, char_scores, word_instances
+        return char_bboxes, char_scores, word_instances, char_text_array, char_score_array
 
     def parse_word_bboxes(
             self, pred_word_fg, pred_word_tblr,
@@ -244,6 +244,13 @@ class OrientedTextPostProcessing(nn.Module):
             text, score = decode(char_scores[order])
             return text, score, char_scores[order]
 
+        def recogChar(char_bboxes, char_scores):
+            max_indices = char_scores.argmax(axis=1)
+            text = [char_dict[idx] for idx in max_indices]
+            scores = [char_scores[idx, max_indices[idx]] for idx in range(max_indices.shape[0])]
+            return text, scores
+
+
         word_bbox_scores = word_bboxes[:, 8]
         char_bbox_scores = char_bboxes[:, 8]
         word_bboxes = word_bboxes[:, :8]
@@ -281,4 +288,7 @@ class OrientedTextPostProcessing(nn.Module):
                     text, text_score,
                     tmp_char_scores
                 ))
-        return word_instances
+
+        char_text_array, char_score_array = recogChar(char_bboxes, char_scores)
+
+        return word_instances, char_text_array, char_score_array
