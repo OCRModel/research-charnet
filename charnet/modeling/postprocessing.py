@@ -37,13 +37,21 @@ def load_char_dict(path, seperator=chr(31)):
 
 
 class WordInstance:
-    def __init__(self, word_bbox, word_bbox_score, text, text_score, char_scores):
+    def __init__(self, word_bbox, word_bbox_score, text, text_score, char_scores, char_texts, char_bboxes):
+    #  , char_bboxes, char_texts
         self.word_bbox = word_bbox
         self.word_bbox_score = word_bbox_score
         self.text = text
         self.text_score = text_score
         self.char_scores = char_scores
+        self.char_texts = char_texts
+        self.char_bboxes = char_bboxes
 
+class CharInstance:
+    def __init__(self, char_bbox, char_bbox_score, text):
+        self.char_bbox = char_bbox
+        self.char_bbox_score = char_bbox_score
+        self.text = text
 
 class OrientedTextPostProcessing(nn.Module):
     def __init__(
@@ -79,14 +87,14 @@ class OrientedTextPostProcessing(nn.Module):
             pred_word_fg, pred_char_fg, pred_char_tblr, pred_char_cls,
             im_scale_w, im_scale_h, original_im_w, original_im_h
         )
-        word_instances, char_text_array, char_score_array = self.parse_words(
+        word_instances, char_instances = self.parse_words(
             ss_word_bboxes, char_bboxes,
             char_scores, self.char_dict
         )
 
         word_instances = self.filter_word_instances(word_instances, self.lexicon)
 
-        return char_bboxes, char_scores, word_instances, char_text_array, char_score_array
+        return char_bboxes, char_scores, word_instances, char_instances
 
     def parse_word_bboxes(
             self, pred_word_fg, pred_word_tblr,
@@ -168,27 +176,28 @@ class OrientedTextPostProcessing(nn.Module):
             return min_dist, lexicon[min_idx]
 
         def filter_and_correct(word_ins, lexicon):
-            if len(word_ins.text) < 3:
-                return None
-            elif word_ins.text.isalpha():
-                if word_ins.text_score >= 0.80:  
-                    if word_ins.text_score >= 0.98:
-                        return word_ins
-                    else:
-                        dist, voc = match_lexicon(word_ins.text, lexicon)
-                        word_ins.text = voc
-                        word_ins.text_edst = dist
-                        if dist <= 1:
-                            return word_ins
-                        else:
-                            return None
-                else:
-                    return None
-            else:
-                if word_ins.text_score >= 0.90:
-                    return word_ins
-                else:
-                    return None
+            return word_ins
+            # if len(word_ins.text) < 3:
+            #     return None
+            # elif word_ins.text.isalpha():
+            #     if word_ins.text_score >= 0.80:  
+            #         if word_ins.text_score >= 0.98:
+            #             return word_ins
+            #         else:
+            #             dist, voc = match_lexicon(word_ins.text, lexicon)
+            #             word_ins.text = voc
+            #             word_ins.text_edst = dist
+            #             if dist <= 1:
+            #                 return word_ins
+            #             else:
+            #                 return None
+            #     else:
+            #         return None
+            # else:
+            #     if word_ins.text_score >= 0.90:
+            #         return word_ins
+            #     else:
+            #         return None
 
         valid_word_instances = list()
         for word_ins in word_instances:
@@ -234,20 +243,20 @@ class OrientedTextPostProcessing(nn.Module):
             max_indices = char_scores.argmax(axis=1)
             text = [char_dict[idx] for idx in max_indices]
             scores = [char_scores[idx, max_indices[idx]] for idx in range(max_indices.shape[0])]
-            return ''.join(text), np.array(scores, dtype=np.float32).mean()
+            return ''.join(text), np.array(scores, dtype=np.float32).mean(), text
 
         def recog(word_bbox, char_bboxes, char_scores):
             word_vec = np.array([1, 0], dtype=np.float32)
             char_vecs = (char_bboxes.reshape((-1, 4, 2)) - word_bbox[0:2]).mean(axis=1)
             proj = char_vecs.dot(word_vec)
             order = np.argsort(proj)
-            text, score = decode(char_scores[order])
-            return text, score, char_scores[order]
+            text, score, char_text = decode(char_scores[order])
+            return text, score, char_scores[order], char_text, char_bboxes[order]
 
-        def recogChar(char_bboxes, char_scores):
-            max_indices = char_scores.argmax(axis=1)
-            text = [char_dict[idx] for idx in max_indices]
-            scores = [char_scores[idx, max_indices[idx]] for idx in range(max_indices.shape[0])]
+        def recogChar(char_scores):
+            max_indices = char_scores.argmax()
+            text = char_dict[max_indices]
+            scores = char_scores[max_indices]
             return text, scores
 
 
@@ -263,6 +272,9 @@ class OrientedTextPostProcessing(nn.Module):
         num_char = char_bboxes.shape[0]
         word_instances = list()
         word_chars = [list() for _ in range(num_word)]
+        char_not_words = list()
+
+        print(char_bboxes.__len__())
         for idx in range(num_char):
             char_bbox = char_bboxes[idx]
             char_poly = char_polys[idx]
@@ -274,10 +286,12 @@ class OrientedTextPostProcessing(nn.Module):
             jdx = np.argmax(match_scores)
             if match_scores[jdx] > 0:
                 word_chars[jdx].append(idx)
+            else:
+                char_not_words.append(idx)
         for idx in range(num_word):
             char_indices = word_chars[idx]
             if len(char_indices) > 0:
-                text, text_score, tmp_char_scores = recog(
+                text, text_score, tmp_char_scores, tmp_char_texts, tmp_char_bboxes = recog(
                     word_bboxes[idx],
                     char_bboxes[char_indices],
                     char_scores[char_indices]
@@ -286,9 +300,15 @@ class OrientedTextPostProcessing(nn.Module):
                     word_bboxes[idx],
                     word_bbox_scores[idx],
                     text, text_score,
-                    tmp_char_scores
+                    tmp_char_scores,
+                    tmp_char_texts,
+                    tmp_char_bboxes
                 ))
 
-        char_text_array, char_score_array = recogChar(char_bboxes, char_scores)
+        char_instances = list()
 
-        return word_instances, char_text_array, char_score_array
+        for idx in range(char_not_words.__len__()):
+            char_text, char_score = recogChar(char_scores[char_not_words[idx]])
+            char_instances.append(CharInstance(char_bboxes[char_not_words[idx]], char_score, char_text))
+
+        return word_instances, char_instances
