@@ -167,15 +167,16 @@ class CharNet(nn.Module):
             pred_char_orient
         )
 
-        char_bboxes, char_scores, word_instances = self.post_processing(
+        char_bboxes, char_scores, word_instances, char_instances = self.post_processing(
             pred_word_fg[0, 1], pred_word_tblr[0],
             pred_word_orient[0, 0], pred_char_fg[0, 1],
             pred_char_tblr[0], pred_char_cls[0],
             im_scale_w, im_scale_h,
             original_im_w, original_im_h
         )
-
-        return char_bboxes, char_scores, word_instances
+        print("Word Ins: ", word_instances.__len__())
+        print("Char Ins: ", char_instances.__len__())
+        return char_bboxes, char_scores, word_instances, char_instances
 
     def build_transform(self):
         to_rgb_transform = T.Lambda(lambda x: x[[2, 1, 0]])

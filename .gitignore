@@ -33,4 +33,8 @@ datasets/ICDAR2015/test/per_image_vocabularies/
 datasets/ICDAR2015/test/results/
 datasets/ICDAR2015/test/weekly_vocabulary.txt
 icdar2015_results/
+datasets/icdar_sroie/
+outputs/
+datasets/20_sample
+.vscode
 
